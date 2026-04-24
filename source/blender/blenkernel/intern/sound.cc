@@ -2464,6 +2464,8 @@ std::optional<Span<float>> bSoundFrequencySampler::ensure_window_cache(int windo
   return window.cumulative_amplitudes;
 }
 
+}  // namespace bke
+
 /* UPBGE */
 void BKE_sound_load_no_assert(Main *bmain, struct bSound *sound)
 {
@@ -2486,7 +2488,5 @@ AUD_Device BKE_sound_get_device()
   return g_state.sound_device;
 }
 /**************************/
-
-}  // namespace bke
 
 }  // namespace blender
