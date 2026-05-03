@@ -1431,6 +1431,8 @@ enum eContextObjectMode CTX_data_mode_enum_ex(const Object *obedit,
         return CTX_MODE_EDIT_GREASE_PENCIL;
       case OB_POINTCLOUD:
         return CTX_MODE_EDIT_POINTCLOUD;
+      default:
+        break;
     }
   }
   else {
