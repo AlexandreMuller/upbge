@@ -310,7 +310,7 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
   /* Configure Shading types and overlays according to
    * (viewport render or not) and (blenderplayer or not)
    */
-  CTX_wm_view3d(C)->shading.type = KX_GetActiveEngine()->ShadingTypeRuntime();
+  CTX_wm_view3d(C)->shading.type = eDrawType(KX_GetActiveEngine()->ShadingTypeRuntime());
 
   if (!KX_GetActiveEngine()->UseViewportRender()) {
     /* We want to indicate that we are in bge runtime. The flag can be used in draw code but in
@@ -1214,7 +1214,7 @@ void KX_Scene::RestoreVisibilityFlag()
        it != m_obVisibilityFlag.end();
        it++) {
     blender::Object *ob = it->first;
-    ob->visibility_flag = it->second;
+    ob->visibility_flag = eObject_VisibilityFlag(it->second);
     DEG_id_tag_update(&ob->id, ID_RECALC_SYNC_TO_EVAL);
   }
   blender::bContext *C = KX_GetActiveEngine()->GetContext();

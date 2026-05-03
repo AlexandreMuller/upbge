@@ -55,8 +55,8 @@ enum eCollectionLineArt_Flags : uint8_t {
 };
 ENUM_OPERATORS(eCollectionLineArt_Flags)
 
-/** #Collection.flag */
-enum eCollection_Flag : uint8_t {
+/** #Collection.flag (uint16_t instead of uint8_t in upbge) */
+enum eCollection_Flag : uint16_t {
   /** Disable in viewports. */
   COLLECTION_HIDE_VIEWPORT = (1 << 0),
   /** Not selectable in viewport. */

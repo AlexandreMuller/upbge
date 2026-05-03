@@ -17,6 +17,7 @@
 
 #include "DNA_ID.h"
 #include "DNA_action_types.h" /* bAnimVizSettings */
+#include "DNA_constraint_types.h"
 #include "DNA_defs.h"
 #include "DNA_listBase.h"
 #include "DNA_vec_defaults.h"

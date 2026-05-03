@@ -280,6 +280,8 @@ void BL_ArmatureObject::LoadConstraints(BL_SceneConverter *converter)
               this, pchan, pcon, gametarget, gamesubtarget);
           m_controlledConstraints->Add(constraint);
         }
+        default:
+          break;
       }
     }
   }
