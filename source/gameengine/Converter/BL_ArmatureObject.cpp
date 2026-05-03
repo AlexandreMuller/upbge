@@ -192,8 +192,8 @@ void BL_ArmatureObject::RemapParentChildren()
         ArmatureModifierData *amd = (ArmatureModifierData *)md;
         if (amd && amd->object == m_previousArmature) {
           amd->object = m_objArma;
-          bool is_using_gpu_deform = amd->deform_method & ARM_DEFORM_METHOD_GPU && !m_is_dupli_instance &&
-                                     !child->IsDupliInstance();
+          bool is_using_gpu_deform = amd->deform_method & ARM_DEFORM_METHOD_GPU && !m_isUpbgeDupliInstance &&
+                                     !child->IsUpbgeDupliInstance();
           if (child->IsReplica() && is_using_gpu_deform) {
             if (m_replicaMeshes.find(child_ob) == m_replicaMeshes.end()) {
               blender::bContext *C = KX_GetActiveEngine()->GetContext();
