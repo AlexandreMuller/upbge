@@ -2735,12 +2735,14 @@ static ID *create_placeholder(Main *mainvar,
 {
   ListBaseT<ID> *lb = which_libbase(mainvar, idcode);
   ID *ph_id = BKE_libblock_alloc_notest(idcode);
+  /* Important to immediately set the library, as API like `BKE_libblock_init_empty` might rely on
+   * it e.g. to allocate an embedded ID in the correct library too. */
+  ph_id->lib = mainvar->curlib;
   BKE_libblock_runtime_ensure(*ph_id);
 
   *(reinterpret_cast<short *>(ph_id->name)) = idcode;
   BLI_strncpy(ph_id->name + 2, idname, sizeof(ph_id->name) - 2);
   BKE_libblock_init_empty(ph_id);
-  ph_id->lib = mainvar->curlib;
   ph_id->tag = tag | ID_TAG_MISSING;
   ph_id->us = ID_FAKE_USERS(ph_id);
   ph_id->icon_id = 0;
@@ -3486,6 +3488,7 @@ static BHead *read_libblock(FileData *fd,
     if (!ID_IS_PACKED(&id)) {
       return;
     }
+    UNUSED_VARS_NDEBUG(main);
     BLI_assert(main->curlib);
     if ((id.lib->flag & LIBRARY_FLAG_IS_EXTERNAL) != 0) {
       /* External libraries should have a null deep hash. */
@@ -5750,17 +5753,6 @@ static void read_library_linked_ids(FileData *basefd, FileData *fd, Main *mainva
           loaded_ids.add_overwrite(id->name, realid);
         }
 
-        /* A failed on-demand block read only clears `FD_FLAGS_FILE_OK` on `fd` (as for the
-         * local-data read loop in #blo_read_file_internal), it doesn't invalidate `mainvar` by
-         * itself. Without this check such a failure looks just like a "missing linked ID" below,
-         * silently continuing the read instead of reporting the corrupt library and aborting. */
-        if (fd && !(fd->flags & FD_FLAGS_FILE_OK)) [[unlikely]] {
-          if (!mainvar->is_read_invalid) {
-            blo_readfile_invalidate(fd, mainvar, "Corrupt .blend file, failed to read a block");
-          }
-          return;
-        }
-
         /* `realid` shall never be nullptr - unless some source file/lib is broken
          * (known case: some directly linked shape-key from a missing lib...). */
         // BLI_assert(*realid != nullptr);
@@ -5786,8 +5778,20 @@ static void read_library_linked_ids(FileData *basefd, FileData *fd, Main *mainva
          * ID common data actually valid and needing to be freed. Therefore, calling
          * #BKE_libblock_free_data on it would not work. */
         BKE_libblock_free_runtime_data(id);
-
         MEM_delete(id);
+
+        /* A failed on-demand block read only clears `FD_FLAGS_FILE_OK` on `fd` (as for the
+         * local-data read loop in #blo_read_file_internal), it doesn't invalidate `mainvar` by
+         * itself. Without this check such a failure looks just like a "missing linked ID" below,
+         * silently continuing the read instead of reporting the corrupt library and aborting.
+         *
+         * Note: Needs to be done at the end, to ensure placeholder `id` is correctly freed. */
+        if (fd && !(fd->flags & FD_FLAGS_FILE_OK)) [[unlikely]] {
+          if (!mainvar->is_read_invalid) {
+            blo_readfile_invalidate(fd, mainvar, "Failed to read a block");
+          }
+          return;
+        }
       }
       id = id_next;
     }
@@ -5930,6 +5934,9 @@ static void read_libraries(FileData *basefd)
     for (int i = 1; i < bmain->split_mains->size(); i++) {
       Main *libmain = (*bmain->split_mains)[i];
       BLI_assert(libmain->curlib);
+      if (libmain->is_read_invalid) [[unlikely]] {
+        return;
+      }
       /* Always skip archived libraries here, these should _never_ need to be processed here, as
        * their data is local data from a blendfile perspective. */
       if (libmain->curlib->flag & LIBRARY_FLAG_IS_ARCHIVE) {
@@ -5947,6 +5954,12 @@ static void read_libraries(FileData *basefd)
         FileData *fd = read_library_file_data(basefd, bmain, libmain);
 
         if (fd) {
+          if (!(fd->flags & FD_FLAGS_FILE_OK)) [[unlikely]] {
+            if (!libmain->is_read_invalid) {
+              blo_readfile_invalidate(fd, libmain, "Failed to open the library blendfile");
+            }
+            return;
+          }
           do_it = true;
 
           if (libmain->id_map == nullptr) {
@@ -5957,10 +5970,16 @@ static void read_libraries(FileData *basefd)
         /* Read linked data-blocks for each link placeholder, and replace
          * the placeholder with the real data-block. */
         read_library_linked_ids(basefd, fd, libmain);
+        if (libmain->is_read_invalid) [[unlikely]] {
+          return;
+        }
 
         /* Test if linked data-blocks need to read further linked data-blocks
          * and create link placeholders for them. */
         expand_main(fd, libmain, expand_doit_library);
+        if (libmain->is_read_invalid) [[unlikely]] {
+          return;
+        }
       }
     }
   }
@@ -5970,6 +5989,9 @@ static void read_libraries(FileData *basefd)
      * Since this can remap pointers in `libmap` of all libraries, it needs to be performed in its
      * own loop, before any call to `lib_link_all` (and the freeing of the libraries' filedata). */
     read_library_clear_weak_links(basefd, libmain);
+    if (libmain->is_read_invalid) [[unlikely]] {
+      return;
+    }
   }
 
   Main *main_newid = BKE_main_new();
@@ -5994,10 +6016,18 @@ static void read_libraries(FileData *basefd)
 
       add_main_to_main(libmain, main_newid);
     }
+    if (libmain->is_read_invalid) [[unlikely]] {
+      BKE_main_free(main_newid);
+      return;
+    }
 
     /* Lib linking. */
     if (libmain->curlib->runtime->filedata) {
       lib_link_all(libmain->curlib->runtime->filedata, libmain);
+    }
+    if (libmain->is_read_invalid) [[unlikely]] {
+      BKE_main_free(main_newid);
+      return;
     }
 
     /* NOTE: No need to call #do_versions_after_linking() or #BKE_main_id_refcount_recompute()

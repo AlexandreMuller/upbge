@@ -47,11 +47,14 @@ PyObject *Texture_close(Texture *self);
 
 Texture::Texture():
       m_imgTexture(nullptr),
-      m_rasTexture(nullptr),
+      m_blTexture(nullptr),
       m_scene(nullptr),
       m_gameobj(nullptr),
-      m_gpuTexInUse(nullptr),
+      m_gpuColorTexInUse(nullptr),
       m_modifiedGPUTexture(nullptr),
+      m_gpuDepthTexture(nullptr),
+      m_py_color_ref(nullptr),
+      m_py_depth_ref(nullptr),
       m_mipmap(false),
       m_lastClock(0.0),
       m_source(nullptr),
@@ -99,15 +102,24 @@ void Texture::FreeAllTextures(KX_Scene *scene)
 
 void Texture::Close()
 {
-  if (m_rasTexture) {
-    m_rasTexture = nullptr;
+  if (m_blTexture) {
+    m_blTexture = nullptr;
   }
   if (m_imgTexture) {
     BKE_image_set_gpu_texture_override(m_imgTexture, nullptr);
     m_imgTexture = nullptr;
   }
-  if (m_gpuTexInUse) {
-    m_gpuTexInUse = nullptr;
+  if (m_py_color_ref) {
+    Py_XDECREF(m_py_color_ref);
+  }
+  if (m_py_depth_ref) {
+    Py_XDECREF(m_py_depth_ref);
+  }
+  if (m_gpuColorTexInUse) {
+    m_gpuColorTexInUse = nullptr;
+  }
+  if (m_gpuDepthTexture) {
+    m_gpuDepthTexture = nullptr; // ImageRender GPUViewport depth
   }
   if (m_modifiedGPUTexture) { // Videos
     GPU_texture_free(m_modifiedGPUTexture);
@@ -137,7 +149,7 @@ void Texture::loadTexture(unsigned int *texture,
   if (imr) {
     // For ImageRender, directly use the GPU texture from the ImageRender GPUViewport
     blender::GPUViewport *viewport = imr->GetGPUViewport();
-    if (viewport && m_imgTexture && !m_gpuTexInUse) {
+    if (viewport && m_imgTexture && !m_gpuColorTexInUse) {
       /* Get the color texture from the ImageRender GPUViewport.This texture is
        * owned by the GPU viewport and must not be reference‑counted by the
        * Image system: Don't call BKE_image_acquire_gpu_texture!! */
@@ -148,7 +160,20 @@ void Texture::loadTexture(unsigned int *texture,
 
       /* Store the pointer in m_gpuTexInUse without acquiring a new
        * reference. */
-      m_gpuTexInUse = gpuTex;
+      m_gpuColorTexInUse = gpuTex;
+
+      m_gpuDepthTexture = GPU_viewport_depth_texture(viewport);
+
+      bool refed_color = GPU_texture_py_reference_get(m_gpuColorTexInUse) != nullptr;
+      bool refed_depth = GPU_texture_py_reference_get(m_gpuDepthTexture) != nullptr;
+      if (!refed_color) {
+        m_py_color_ref = BPyGPUTexture_CreatePyObject(m_gpuColorTexInUse, false);
+        Py_INCREF(m_py_color_ref);
+      }
+      if (!refed_depth) {
+        m_py_depth_ref = BPyGPUTexture_CreatePyObject(m_gpuDepthTexture, false);
+        Py_INCREF(m_py_depth_ref);
+      }
     }
     // No need to upload a CPU buffer, return early
     return;
@@ -180,7 +205,7 @@ void Texture::loadTexture(unsigned int *texture,
 
     // Do not acquire a new reference – the texture is already owned by
     // this VideoTexture instance via m_modifiedGPUTexture.
-    m_gpuTexInUse = m_modifiedGPUTexture;
+    m_gpuColorTexInUse = m_modifiedGPUTexture;
 
     // Register the override on the Image. No additional refcount is taken.
     BKE_image_set_gpu_texture_override(m_imgTexture, m_modifiedGPUTexture);
@@ -220,17 +245,9 @@ short getMaterialID(PyObject *obj, const char *name)
     // if material is not available, report that no material was found
     if (mat == nullptr)
       break;
-    // name is a material name if it starts with MA and a UV texture name if it starts with IM
-    if (name[0] == 'I' && name[1] == 'M') {
-      // if texture name matches
-      if (mat->GetTextureName() == name)
-        return matID;
-    }
-    else {
-      // if material name matches
-      if (mat->GetName() == name)
-        return matID;
-    }
+    // if material name matches
+    if (mat->GetName() == name)
+      return matID;
   }
   // material was not found
   return -1;
@@ -263,23 +280,23 @@ static int Texture_init(PyObject *self, PyObject *args, PyObject *kwds)
 
   // parameters - game object with video texture
   PyObject *obj = nullptr;
-  // material blender::ID
+  // material index
   short matID = 0;
-  // texture blender::ID
-  short texID = 0;
+  // Image Texture node name
+  char *imageTextureName = nullptr;
   // texture object with shared texture blender::ID
   Texture *texObj = nullptr;
 
-  static const char *kwlist[] = {"gameObj", "materialID", "textureID", "textureObj", nullptr};
+  static const char *kwlist[] = {"gameObj", "materialID", "ImageTextureNodeName", "textureObj", nullptr};
 
   // get parameters
   if (!PyArg_ParseTupleAndKeywords(args,
                                    kwds,
-                                   "O|hhO!",
+                                   "Ohs|O!",
                                    const_cast<char **>(kwlist),
                                    &obj,
                                    &matID,
-                                   &texID,
+                                   &imageTextureName,
                                    &Texture::Type,
                                    &texObj))
   {
@@ -296,17 +313,17 @@ static int Texture_init(PyObject *self, PyObject *args, PyObject *kwds)
       // get pointer to texture image
       RAS_IPolyMaterial *mat = getMaterial(gameObj, matID);
 
-      if (mat != nullptr) {
+      if (mat != nullptr && imageTextureName != nullptr) {
         // get blender material texture
-        tex->m_rasTexture = mat->GetTexture(texID);
-        if (!tex->m_rasTexture) {
+        tex->m_blTexture = mat->GetTextureByNodeName(imageTextureName);
+        if (!tex->m_blTexture) {
           THRWEXCP(TextureNotAvail, S_OK);
         }
-        tex->m_imgTexture = tex->m_rasTexture->GetImage();
+        tex->m_imgTexture = tex->m_blTexture->GetImage();
       }
 
       // check if texture is available, if not, initialization failed
-      if (tex->m_imgTexture == nullptr && tex->m_rasTexture == nullptr) {
+      if (tex->m_imgTexture == nullptr && tex->m_blTexture == nullptr) {
         // throw exception if initialization failed
         THRWEXCP(MaterialNotAvail, S_OK);
       }
@@ -405,7 +422,18 @@ EXP_PYMETHODDEF_DOC(Texture, refresh, "Refresh texture from source")
 PyObject *Texture::pyattr_get_gputexture(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
 {
   Texture *self = static_cast<Texture *>(self_v);
-  blender::gpu::Texture *gputex = self->m_gpuTexInUse;
+  blender::gpu::Texture *gputex = self->m_gpuColorTexInUse;
+  if (gputex) {
+    return BPyGPUTexture_CreatePyObject(gputex, true);
+  }
+  Py_RETURN_NONE;
+}
+
+// get depth gputexture
+PyObject *Texture::pyattr_get_gpu_depth_texture(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef)
+{
+  Texture *self = static_cast<Texture *>(self_v);
+  blender::gpu::Texture *gputex = self->m_gpuDepthTexture;
   if (gputex) {
     return BPyGPUTexture_CreatePyObject(gputex, true);
   }
@@ -489,7 +517,8 @@ PyMethodDef Texture::Methods[] = {
 PyAttributeDef Texture::Attributes[] = {
     EXP_PYATTRIBUTE_RW_FUNCTION("mipmap", Texture, pyattr_get_mipmap, pyattr_set_mipmap),
     EXP_PYATTRIBUTE_RW_FUNCTION("source", Texture, pyattr_get_source, pyattr_set_source),
-    EXP_PYATTRIBUTE_RO_FUNCTION("gpuTexture", Texture, pyattr_get_gputexture),
+    EXP_PYATTRIBUTE_RO_FUNCTION("gpuTexture", Texture, pyattr_get_gputexture), // ImageRender AND other sources
+    EXP_PYATTRIBUTE_RO_FUNCTION("gpuDepthTexture", Texture, pyattr_get_gpu_depth_texture), // ImageRender only
     EXP_PYATTRIBUTE_NULL};
 
 // class Texture declaration

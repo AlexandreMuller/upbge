@@ -27,27 +27,33 @@
 #include "DNA_image_types.h"
 
 #include "EXP_Value.h"
-#include "RAS_Texture.h"
 
 struct GPUMaterialTexture;
 namespace blender::gpu {
 class Texture;
 }  // namespace blender::gpu
 
+namespace blender {
+  struct bNode;
+} // namespace blender
 
-class BL_Texture : public EXP_Value, public RAS_Texture {
+
+class BL_Texture : public EXP_Value {
   Py_Header private : bool m_isCubeMap;
+
   blender::Image *m_ima;
+  blender::bNode *m_node;
+  std::string m_name;
 
  public:
-  BL_Texture(blender::Image *ima);
+  BL_Texture(blender::Image *ima, blender::bNode *node);
   virtual ~BL_Texture();
 
   // stuff for cvalue related things
   virtual std::string GetName();
-  virtual bool IsCubeMap() const;
+  bool IsCubeMap() const;
 
-  virtual blender::Image *GetImage() const;
+  blender::Image *GetImage() const;
 
   enum { MaxUnits = 32 };
 

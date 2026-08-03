@@ -19,8 +19,7 @@ namespace blender::gpu {
 class Texture;
 }  // namespace blender::gpu
 
-struct ImBuf;
-class RAS_Texture;
+class BL_Texture;
 class RAS_IPolyMaterial;
 class KX_Scene;
 class KX_GameObject;
@@ -34,12 +33,17 @@ class Texture : public EXP_Value {
   blender::Image *m_imgTexture;
 
   // texture for blender materials
-  RAS_Texture *m_rasTexture;
+  BL_Texture *m_blTexture;
 
   KX_Scene *m_scene;
   KX_GameObject *m_gameobj;
-  blender::gpu::Texture *m_gpuTexInUse;
+  blender::gpu::Texture *m_gpuColorTexInUse; // For ImageRender AND other sources
   blender::gpu::Texture *m_modifiedGPUTexture;
+
+  blender::gpu::Texture *m_gpuDepthTexture; // For ImageRender only (GPUViewport depth texture)
+
+  void *m_py_color_ref;
+  void *m_py_depth_ref;
 
   // use mipmapping
   bool m_mipmap;
@@ -81,6 +85,8 @@ class Texture : public EXP_Value {
                                const EXP_PYATTRIBUTE_DEF *attrdef,
                                PyObject *value);
   static PyObject *pyattr_get_gputexture(EXP_PyObjectPlus *self_v, const EXP_PYATTRIBUTE_DEF *attrdef);
+  static PyObject *pyattr_get_gpu_depth_texture(EXP_PyObjectPlus *self_v,
+                                          const EXP_PYATTRIBUTE_DEF *attrdef);
 };
 
 // get material
