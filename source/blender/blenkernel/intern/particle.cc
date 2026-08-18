@@ -4108,6 +4108,9 @@ ParticleSettings *BKE_particlesettings_add(Main *bmain, const char *name)
 
   part = BKE_id_new<ParticleSettings>(bmain, name);
 
+  /* Default to one step so the game engine behaves like the viewport by default. */
+  part->game_simulation_steps = 1;
+
   return part;
 }
 

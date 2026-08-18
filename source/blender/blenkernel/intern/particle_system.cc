@@ -4790,7 +4790,8 @@ void particle_system_update(Depsgraph *depsgraph,
                             Scene *scene,
                             Object *ob,
                             ParticleSystem *psys,
-                            const bool use_render_params)
+                            const bool use_render_params,
+                            const float override_cfra)
 {
   ParticleSimulationData sim = {nullptr};
   ParticleSettings *part = psys->part;
@@ -4807,7 +4808,12 @@ void particle_system_update(Depsgraph *depsgraph,
     return;
   }
 
-  cfra = DEG_get_ctime(depsgraph);
+  if (override_cfra >= 0.0f) {
+    cfra = override_cfra;
+  }
+  else {
+    cfra = DEG_get_ctime(depsgraph);
+  }
 
   sim.depsgraph = depsgraph;
   sim.scene = scene;

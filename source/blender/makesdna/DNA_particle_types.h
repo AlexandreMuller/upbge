@@ -681,6 +681,10 @@ struct ParticleSettings {
   float rad_root = 1.0f, rad_tip = 0.0f, rad_scale = 0.01f;
 
   struct CurveMapping *twistcurve = nullptr;
+
+  /* Game engine simulation stepping. */
+  short game_simulation_steps = 1;
+  char _pad_game[6] = {};
 };
 
 struct ParticleSystem {

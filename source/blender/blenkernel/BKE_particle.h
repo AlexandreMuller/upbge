@@ -525,7 +525,8 @@ void particle_system_update(struct Depsgraph *depsgraph,
                             struct Scene *scene,
                             struct Object *ob,
                             struct ParticleSystem *psys,
-                            bool use_render_params);
+                            bool use_render_params,
+                            float override_cfra = -1.0f);
 
 /**
  * Callback format for performing operations on ID-pointers for particle systems.

@@ -2700,6 +2700,16 @@ static void rna_def_particle_settings(BlenderRNA *brna)
   RNA_def_property_ui_text(prop, "Random", "Give the particle life a random variation");
   RNA_def_property_update(prop, 0, "rna_Particle_reset");
 
+  prop = RNA_def_property(srna, "game_simulation_steps", PROP_INT, PROP_NONE);
+  RNA_def_property_int_sdna(prop, nullptr, "game_simulation_steps");
+  RNA_def_property_range(prop, 0, 100);
+  RNA_def_property_ui_range(prop, 0, 100, 1, -1);
+  RNA_def_property_ui_text(
+      prop,
+      "Game Steps",
+      "Number of particle simulation steps to run per game frame in the game engine (0 = none)");
+  RNA_def_property_update(prop, 0, "rna_Particle_reset");
+
   prop = RNA_def_property(srna, "time_tweak", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, nullptr, "timetweak");
   RNA_def_property_range(prop, 0.0f, 100.0f);
