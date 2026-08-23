@@ -306,6 +306,7 @@ class PARTICLE_PT_emission(ParticleButtonsPanel, Panel):
 
             col.prop(part, "lifetime")
             col.prop(part, "lifetime_random", slider=True, text="Lifetime Randomness")
+            col.prop(part, "game_simulation_steps")
 
 
 class PARTICLE_PT_emission_source(ParticleButtonsPanel, Panel):

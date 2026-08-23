@@ -32,6 +32,7 @@
 #pragma once
 
 #include <list>
+#include <map>
 #include <set>
 #include <vector>
 
@@ -52,6 +53,7 @@
  */
 namespace blender { struct ID; }
 namespace blender { struct Object; }
+namespace blender { struct ParticleSystem; }
 namespace blender { struct Scene; }
 namespace blender { struct Main; }
 namespace blender { struct Depsgraph; }
@@ -218,8 +220,13 @@ class KX_Scene : public KX_PythonProxy, public SCA_IScene {
    */
   std::map<SCA_IObject *, SCA_IObject *> m_map_gameobject_to_replica;
 
-  /**
-   * Another temporary variable outstaying its welcome
+  /**   * Per-particle-system simulation frame used by the game engine to drive
+   * particle systems independently from the Blender timeline. Updated every
+   * game frame in update_game_particle_systems().
+   */
+  std::map<blender::ParticleSystem *, float> m_gameParticleCfra;
+
+  /**   * Another temporary variable outstaying its welcome
    * used in AddReplicaObject to keep a record of all added
    * objects. Logic can only be updated when all objects
    * have been updated. This stores a list of the new objects.
@@ -427,6 +434,12 @@ class KX_Scene : public KX_PythonProxy, public SCA_IScene {
   EXP_ListValue<KX_GameObject> *GetInactiveList() const;
   EXP_ListValue<KX_GameObject> *GetRootParentList() const;
   EXP_ListValue<KX_LightObject> *GetLightList() const;
+
+  /**
+   * Returns the map that stores the per-particle-system simulation frame used
+   * by the game engine to drive particles independently of the Blender timeline.
+   */
+  std::map<blender::ParticleSystem *, float> &GetGameParticleCfra();
 
   SCA_LogicManager *GetLogicManager() const;
 

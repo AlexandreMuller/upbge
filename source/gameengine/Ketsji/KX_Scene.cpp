@@ -47,6 +47,7 @@
 #include "BKE_mball.hh"
 #include "BKE_modifier.hh"
 #include "BKE_object.hh"
+#include "BKE_particle.h"
 #include "BKE_scene.hh"
 #include "BKE_screen.hh"
 #include "BLI_listbase.hh"
@@ -107,6 +108,99 @@
 #endif
 
 using namespace blender;
+
+static void update_game_particle_systems(Depsgraph *depsgraph, Scene *scene, KX_Scene *kx_scene)
+{
+  const float base_cfra = DEG_get_ctime(depsgraph);
+  std::map<ParticleSystem *, float> &game_cfra_map = kx_scene->GetGameParticleCfra();
+
+  /* Build a set of active particle systems so stale entries can be removed. */
+  std::set<ParticleSystem *> active_psys;
+
+  for (KX_GameObject *gameobj : kx_scene->GetObjectList()) {
+    Object *ob_orig = gameobj->GetBlenderObject();
+    if (!ob_orig || BLI_listbase_is_empty(&ob_orig->particlesystem)) {
+      continue;
+    }
+
+    Object *ob_eval = DEG_get_evaluated<Object>(depsgraph, ob_orig);
+    if (!ob_eval) {
+      continue;
+    }
+
+    for (ParticleSystem *psys_orig = static_cast<ParticleSystem *>(ob_orig->particlesystem.first);
+         psys_orig;
+         psys_orig = static_cast<ParticleSystem *>(psys_orig->next))
+    {
+      if (!psys_orig->part) {
+        continue;
+      }
+
+      const short game_steps = psys_orig->part->game_simulation_steps;
+      if (game_steps <= 0) {
+        continue;
+      }
+
+      /* Hair and fluid particle systems are driven by baked or domain data,
+       * so repeating the dynamic step does not apply to them. */
+      if (psys_orig->part->type == PART_HAIR ||
+          (psys_orig->part->type >= PART_FLUID &&
+           psys_orig->part->type <= PART_FLUID_SPRAYFOAMBUBBLE))
+      {
+        continue;
+      }
+
+      ParticleSystem *psys_eval = nullptr;
+      for (ParticleSystem *psys = static_cast<ParticleSystem *>(ob_eval->particlesystem.first);
+           psys;
+           psys = static_cast<ParticleSystem *>(psys->next))
+      {
+        if (psys->orig_psys == psys_orig) {
+          psys_eval = psys;
+          break;
+        }
+      }
+
+      if (!psys_eval || !psys_check_enabled(ob_eval, psys_eval, false)) {
+        continue;
+      }
+
+      active_psys.insert(psys_orig);
+
+      /* Use a per-system game simulation frame that advances independently of
+       * the Blender timeline. The first time a system is seen, seed it from the
+       * current depsgraph time so existing timeline state is preserved. */
+      auto it = game_cfra_map.find(psys_orig);
+      if (it == game_cfra_map.end()) {
+        it = game_cfra_map.insert({psys_orig, base_cfra}).first;
+      }
+      float last_cfra = it->second;
+
+      ParticleSystemModifierData *psmd = psys_get_modifier(ob_eval, psys_eval);
+      if (psmd) {
+        psmd->flag &= ~eParticleSystemFlag_psys_updated;
+      }
+
+      for (int step = 1; step <= game_steps; step++) {
+        const float cfra = last_cfra + float(step);
+        particle_system_update(depsgraph, scene, ob_eval, psys_eval, false, cfra);
+      }
+
+      it->second = last_cfra + float(game_steps);
+    }
+  }
+
+  /* Remove map entries for particle systems that no longer belong to an
+   * active game object, avoiding stale pointers after object removal. */
+  for (auto it = game_cfra_map.begin(); it != game_cfra_map.end();) {
+    if (active_psys.find(it->first) == active_psys.end()) {
+      it = game_cfra_map.erase(it);
+    }
+    else {
+      ++it;
+    }
+  }
+}
 
 static void bge_dupli_provider(DEGObjectIterData *data)
 {
@@ -736,6 +830,11 @@ void KX_Scene::UpdateDepsgraph(blender::Main *bmain,
   /* We need the changes to be flushed before each draw loop! */
   blender::Depsgraph *depsgraph = CTX_data_depsgraph_pointer(KX_GetActiveEngine()->GetContext());
   BKE_scene_graph_update_tagged(depsgraph, bmain);
+
+  /* Run extra particle simulation steps for game engine objects whose particle
+   * settings request more than one step per frame. This makes the Blender particle
+   * system advance during gameplay independently of the timeline frame. */
+  update_game_particle_systems(depsgraph, scene, this);
 }
 
 bool KX_Scene::ViewportRender(KX_Camera *cam,
@@ -827,10 +926,30 @@ void KX_Scene::RenderAfterCameraSetup(KX_Camera *cam,
     blender::Object *ob = gameobj->GetBlenderObject();
     TagBlenderPhysicsObject(scene, ob);
     gameobj->TagForTransformUpdate(is_overlay_pass);
+
+    /* Game-engine driven particle systems need the depsgraph to be evaluated
+     * every frame so that update_game_particle_systems() can advance the
+     * simulation independently of the timeline. */
+    if (ob && !BLI_listbase_is_empty(&ob->particlesystem)) {
+      for (ParticleSystem *psys = static_cast<ParticleSystem *>(ob->particlesystem.first);
+           psys;
+           psys = static_cast<ParticleSystem *>(psys->next))
+      {
+        if (psys->part && psys->part->game_simulation_steps > 0 &&
+            psys->part->type != PART_HAIR &&
+            !(psys->part->type >= PART_FLUID &&
+              psys->part->type <= PART_FLUID_SPRAYFOAMBUBBLE))
+        {
+          engine->MarkDepsgraphDirty();
+          break;
+        }
+      }
+    }
   }
 
   // Milestone 4: only evaluate the depsgraph when something structural changed.
   // The first frame always evaluates the depsgraph to ensure a valid evaluated state.
+  // Particle systems driven by game_simulation_steps force the depsgraph dirty above.
   if (engine->IsDepsgraphDirty()) {
     const auto depsT0 = std::chrono::steady_clock::now();
     engine->CountDepsgraphTime();
@@ -1622,6 +1741,11 @@ EXP_ListValue<KX_GameObject> *KX_Scene::GetInactiveList() const
 EXP_ListValue<KX_LightObject> *KX_Scene::GetLightList() const
 {
   return m_lightlist;
+}
+
+std::map<blender::ParticleSystem *, float> &KX_Scene::GetGameParticleCfra()
+{
+  return m_gameParticleCfra;
 }
 
 SCA_LogicManager *KX_Scene::GetLogicManager() const
