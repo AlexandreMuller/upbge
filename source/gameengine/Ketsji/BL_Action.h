@@ -115,17 +115,19 @@ class BL_Action {
   void UpdateObjectAnimation(blender::Object *ob, const blender::AnimationEvalContext &animEvalContext);
   bool TryUpdateModifierActions(blender::Object *ob,
                                 KX_Scene *scene,
-                                const blender::AnimationEvalContext &animEvalContext);
+                                const blender::AnimationEvalContext &animEvalContext, const bool gpu_deformed_mesh);
   bool TryUpdateConstraintActions(blender::Object *ob,
                                   KX_Scene *scene,
                                   const blender::AnimationEvalContext &animEvalContext);
   bool TryUpdateIDPropertyActions(blender::Object *ob,
                                   KX_Scene *scene,
                                   const blender::AnimationEvalContext &animEvalContext);
-  bool TryUpdateNodeTreeActions(KX_Scene *scene, const blender::AnimationEvalContext &animEvalContext);
+  bool TryUpdateNodeTreeActions(KX_Scene *scene,
+                                const blender::AnimationEvalContext &animEvalContext);
   bool TryUpdateShapeKeyActions(blender::Object *ob,
                                 KX_Scene *scene,
-                                const blender::AnimationEvalContext &animEvalContext);
+                                const blender::AnimationEvalContext &animEvalContext,
+                                const bool gpu_deformed_mesh);
   bool IsNodeTreeActionMatch(blender::bNodeTree *nodetree);
   bool IsNLAShapeKeyActionMatch(blender::Key *key);
   void ProcessShapeKeyBlending(blender::Key *key);

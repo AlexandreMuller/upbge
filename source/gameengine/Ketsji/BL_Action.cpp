@@ -364,7 +364,7 @@ static bool ActionMatchesName(blender::bAction *action, char *name, eActionType 
       }
       for (Channelbag *bag : strip->data<StripKeyframeData>(new_action).channelbags()) {
         for (FCurve *fcu : bag->fcurves()) {
-          if (fcu->rna_path) {
+          if (fcu->rna_path_ptr) {
             char pattern[256];
             char md_name_esc[sizeof(name) * 2];
             switch (type) {
@@ -388,7 +388,7 @@ static bool ActionMatchesName(blender::bAction *action, char *name, eActionType 
             // std::cout << "data name: " << pattern << std::endl;
             /* Find a correspondance between ob->modifier/ob->constraint... and actuator action
              * (m_action) */
-            if (strstr(fcu->rna_path, pattern)) {
+            if (strstr(fcu->rna_path_ptr, pattern)) {
               // std::cout << "fcu and name match" << std::endl;
               return true;
             }
@@ -602,15 +602,15 @@ void BL_Action::UpdateObjectAnimation(blender::Object *ob, const blender::Animat
   /* To skip some code if not needed */
   bool actionIsUpdated = false;
 
-  /* WARNING: The check to be sure the right action is played (to know if the action
-   * which is in the actuator will be the one which will be played)
-   * might be wrong (if (ob->adt && ob->adt->action == m_action) playaction;)
-   * because WE MIGHT NEED TO CHANGE OB->ADT->ACTION DURING RUNTIME
-   * then another check should be found to ensure to play the right action.
-   */
-  // TEST KEYFRAMED MODIFIERS (WRONG CODE BUT JUST FOR TESTING PURPOSE)
+  bool gpu_deformed_mesh = false;
+  if (ob->type == OB_MESH) {
+    Mesh *me = id_cast<Mesh *>(ob->data);
+    gpu_deformed_mesh = (me && me->is_running_gpu_animation_playback);
+  }
+
+  // TEST KEYFRAMED MODIFIERS
   if (!actionIsUpdated) {
-    actionIsUpdated = TryUpdateModifierActions(ob, scene, animEvalContext);
+    actionIsUpdated = TryUpdateModifierActions(ob, scene, animEvalContext, gpu_deformed_mesh);
   }
 
   if (!actionIsUpdated) {
@@ -630,7 +630,7 @@ void BL_Action::UpdateObjectAnimation(blender::Object *ob, const blender::Animat
 
   if (!actionIsUpdated) {
     // TEST Shapekeys action
-    TryUpdateShapeKeyActions(ob, scene, animEvalContext);
+    TryUpdateShapeKeyActions(ob, scene, animEvalContext, gpu_deformed_mesh);
   }
 }
 
@@ -638,7 +638,7 @@ static bool TryModifierTextureActions(ModifierData *md,
                                       bAction *actuator_action,
                                       KX_Scene *scene,
                                       Object *ob,
-                                      const blender::AnimationEvalContext &animEvalContext)
+                                      const blender::AnimationEvalContext &animEvalContext, const bool gpu_deformed_mesh)
 {
   bool check_modifier_texture = ELEM(
       md->type, eModifierType_Displace, eModifierType_Warp, eModifierType_Wave);
@@ -679,6 +679,9 @@ static bool TryModifierTextureActions(ModifierData *md,
         *actuator_action);
     blender::animsys_evaluate_action(
         &ptrrna, actuator_action, slot_handle, &animEvalContext, false);
+    if (!gpu_deformed_mesh) {
+      scene->AppendToIdsToUpdate(&ob->id, ID_RECALC_GEOMETRY, ob->gameflag & OB_OVERLAY_COLLECTION);
+    }
     /* Action found, return true */
     return true;
   }
@@ -687,11 +690,12 @@ static bool TryModifierTextureActions(ModifierData *md,
 
 bool BL_Action::TryUpdateModifierActions(blender::Object *ob,
                                          KX_Scene *scene,
-                                         const blender::AnimationEvalContext &animEvalContext)
+                                         const blender::AnimationEvalContext &animEvalContext,
+                                         const bool gpu_deformed_mesh)
 {
   for (ModifierData *md = (ModifierData *)ob->modifiers.first; md; md = md->next) {
     /* Action actuator can have actions from modifiers textures; try it first */
-    if (TryModifierTextureActions(md, m_action, scene, ob, animEvalContext)) {
+    if (TryModifierTextureActions(md, m_action, scene, ob, animEvalContext, gpu_deformed_mesh)) {
       /* Action played, return true; else loop continues */
       return true;
     }
@@ -700,18 +704,12 @@ bool BL_Action::TryUpdateModifierActions(blender::Object *ob,
     if (isRightAction) {
       IDRecalcFlag flag = BKE_modifier_is_non_geometrical(md) ? ID_RECALC_TRANSFORM :
                                                                 ID_RECALC_GEOMETRY;
-      bool skip_depsgraph = false;
-      if (ob->type == OB_MESH) {
-        blender::Mesh *me = id_cast<blender::Mesh *>(ob->data);
-        skip_depsgraph = (me && me->is_running_gpu_animation_playback);
-      }
-      if (!skip_depsgraph) {
+      if (!gpu_deformed_mesh) {
         scene->AppendToIdsToUpdate(&ob->id, flag, ob->gameflag & OB_OVERLAY_COLLECTION);
       }
       else {
-        bContext *C = KX_GetActiveEngine()->GetContext();
-        Depsgraph *depsgraph = CTX_data_depsgraph_on_load(C);
-        DEG_bump_update_count(depsgraph);
+        scene->AppendToIdsToUpdate(
+            &ob->id, ID_RECALC_TRANSFORM, ob->gameflag & OB_OVERLAY_COLLECTION);
       }
 
       blender::PointerRNA ptrrna = RNA_id_pointer_create(&ob->id);
@@ -815,7 +813,8 @@ bool BL_Action::IsNodeTreeActionMatch(blender::bNodeTree *nodetree)
 
 bool BL_Action::TryUpdateShapeKeyActions(blender::Object *ob,
                                          KX_Scene *scene,
-                                         const blender::AnimationEvalContext &animEvalContext)
+                                         const blender::AnimationEvalContext &animEvalContext,
+                                         const bool gpu_deformed_mesh)
 {
   blender::Mesh *me = (blender::Mesh *)ob->data;
   if (ob->type == OB_MESH && me) {
@@ -835,9 +834,13 @@ bool BL_Action::TryUpdateShapeKeyActions(blender::Object *ob,
     }
 
     if (play_normal_key_action || play_nla_key_action) {
-      bool gpu_deformation = me->is_running_gpu_animation_playback;
-      if (!gpu_deformation) {
-        scene->AppendToIdsToUpdate(&me->id, ID_RECALC_GEOMETRY, false);
+      if (!gpu_deformed_mesh) {
+        scene->AppendToIdsToUpdate(
+            &ob->id, ID_RECALC_GEOMETRY, ob->gameflag & OB_OVERLAY_COLLECTION);
+      }
+      else {
+        scene->AppendToIdsToUpdate(
+            &ob->id, ID_RECALC_TRANSFORM, ob->gameflag & OB_OVERLAY_COLLECTION);
       }
       blender::Key *key = me->key;
 

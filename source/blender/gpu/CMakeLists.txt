@@ -110,6 +110,7 @@ set(SRC
   intern/gpu_vertex_format_normals.cc
   intern/gpu_viewport.cc
   intern/gpu_worker.cc
+  intern/gpu_work_in_flight.cc
   gpu_deform_common/gpu_shader_common_normal_lib.cc
   gpu_deform_common/gpu_shader_common_texture_lib.cc
   gpu_deform_common/gpu_texture_helpers.cc
@@ -169,6 +170,7 @@ set(SRC
   GPU_vertex_buffer.hh
   GPU_vertex_format.hh
   GPU_viewport.hh
+  GPU_work_in_flight.hh
   GPU_worker.hh
   gpu_deform_common/gpu_shader_common_normal_lib.hh
   gpu_deform_common/gpu_shader_common_texture_lib.hh
@@ -233,6 +235,7 @@ set(OPENGL_SRC
   opengl/gl_uniform_buffer.cc
   opengl/gl_vertex_array.cc
   opengl/gl_vertex_buffer.cc
+  opengl/gl_work_in_flight.cc
 
   opengl/gl_backend.hh
   opengl/gl_batch.hh
@@ -254,6 +257,7 @@ set(OPENGL_SRC
   opengl/gl_uniform_buffer.hh
   opengl/gl_vertex_array.hh
   opengl/gl_vertex_buffer.hh
+  opengl/gl_work_in_flight.hh
 )
 
 set(VULKAN_SRC
@@ -309,6 +313,7 @@ set(VULKAN_SRC
   vulkan/vk_vertex_attribute_object.cc
   vulkan/vk_vertex_attribute_object_cache.cc
   vulkan/vk_vertex_buffer.cc
+  vulkan/vk_work_in_flight.cc
 
   vulkan/vk_backend.hh
   vulkan/vk_batch.hh
@@ -391,6 +396,7 @@ set(VULKAN_SRC
   vulkan/vk_vertex_attribute_object_cache.hh
   vulkan/vk_vertex_buffer.hh
   vulkan/vk_vertex_input_description.hh
+  vulkan/vk_work_in_flight.hh
 )
 
 set(METAL_SRC
@@ -417,6 +423,7 @@ set(METAL_SRC
   metal/mtl_texture_util.mm
   metal/mtl_uniform_buffer.mm
   metal/mtl_vertex_buffer.mm
+  metal/mtl_work_in_flight.mm
 
   metal/mtl_backend.hh
   metal/mtl_batch.hh
@@ -446,6 +453,7 @@ set(METAL_SRC
   metal/mtl_texture_pool.hh
   metal/mtl_uniform_buffer.hh
   metal/mtl_vertex_buffer.hh
+  metal/mtl_work_in_flight.hh
 )
 
 set(LIB
@@ -522,6 +530,7 @@ set(GLSL_SRC
   shaders/infos/gpu_shader_2D_point_uniform_size_uniform_color_aa_infos.hh
   shaders/infos/gpu_shader_2D_point_uniform_size_uniform_color_outline_aa_infos.hh
   shaders/infos/gpu_shader_2D_point_varying_size_varying_color_infos.hh
+  shaders/infos/gpu_shader_2D_rounded_corner_mask_infos.hh
   shaders/infos/gpu_shader_2D_widget_infos.hh
   shaders/infos/gpu_shader_3D_depth_only_infos.hh
   shaders/infos/gpu_shader_3D_flat_color_infos.hh
@@ -551,6 +560,8 @@ set(GLSL_SRC
   shaders/gpu_shader_2D_vert.glsl
   shaders/gpu_shader_2D_area_borders_vert.glsl
   shaders/gpu_shader_2D_area_borders_frag.glsl
+  shaders/gpu_shader_2D_rounded_corner_mask_vert.glsl
+  shaders/gpu_shader_2D_rounded_corner_mask_frag.glsl
   shaders/gpu_shader_2D_widget_base.bsl.hh
   shaders/gpu_shader_2D_widget_shadow_vert.glsl
   shaders/gpu_shader_2D_widget_shadow_frag.glsl
@@ -690,6 +701,7 @@ set(GLSL_SRC
   shaders/material/gpu_shader_material_fresnel.glsl
   shaders/material/gpu_shader_material_gamma.glsl
   shaders/material/gpu_shader_material_geometry.glsl
+  shaders/material/gpu_shader_material_get_vector_component.glsl
   shaders/material/gpu_shader_material_glass.glsl
   shaders/material/gpu_shader_material_glossy.glsl
   shaders/material/gpu_shader_material_hair_info.glsl
@@ -998,6 +1010,7 @@ if(WITH_GTESTS)
       tests/framebuffer_test.cc
       tests/immediate_test.cc
       tests/index_buffer_test.cc
+      tests/mipmap_test.cc
       tests/push_constants_test.cc
       tests/ray_tracing_test.cc
       tests/shader_create_info_test.cc
