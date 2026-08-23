@@ -36,7 +36,6 @@
 
 #include "KX_Scene.h"
 
-#include <chrono>
 #include <iostream>
 
 #include "BKE_global.hh"
@@ -631,7 +630,7 @@ void KX_Scene::AddOverlayCollection(KX_Camera *overlay_cam, blender::Collection 
   SetOverlayCamera(overlay_cam);
   m_overlay_collections.push_back(collection);
 
-  // Milestone 4: overlay collection changes scene structure, depsgraph must be evaluated.
+  // Overlay collection changes scene structure, depsgraph must be evaluated.
   if (KX_GetActiveEngine()) {
     KX_GetActiveEngine()->MarkDepsgraphDirty();
   }
@@ -694,7 +693,7 @@ void KX_Scene::RemoveOverlayCollection(blender::Collection *collection)
     }
     FOREACH_COLLECTION_OBJECT_RECURSIVE_END;
 
-    // Milestone 4: overlay collection changes scene structure, depsgraph must be evaluated.
+    // Overlay collection changes scene structure, depsgraph must be evaluated.
     if (KX_GetActiveEngine()) {
       KX_GetActiveEngine()->MarkDepsgraphDirty();
     }
@@ -947,30 +946,14 @@ void KX_Scene::RenderAfterCameraSetup(KX_Camera *cam,
     }
   }
 
-  // Milestone 4: only evaluate the depsgraph when something structural changed.
+  // Only evaluate the depsgraph when something structural changed.
   // The first frame always evaluates the depsgraph to ensure a valid evaluated state.
   // Particle systems driven by game_simulation_steps force the depsgraph dirty above.
   if (engine->IsDepsgraphDirty()) {
-    const auto depsT0 = std::chrono::steady_clock::now();
     engine->CountDepsgraphTime();
     UpdateDepsgraph(bmain, scene, is_overlay_pass, is_last_render_pass, cam);
     engine->EndCountDepsgraphTime();
-    const auto depsT1 = std::chrono::steady_clock::now();
-    // Milestone 1 instrumentation: log depsgraph time every time it is evaluated
-    // so that the benchmark can capture it reliably.
-    const double depsMs = std::chrono::duration<double, std::milli>(depsT1 - depsT0).count();
-    std::cerr << "[BGE_PERF] UpdateDepsgraph time_ms=" << depsMs
-              << " scene=" << GetName()
-              << " objects=" << GetObjectList()->GetCount() << "\n";
     engine->ClearDepsgraphDirty();
-  }
-  else {
-    // Milestone 4: explicit "no-op" log so the benchmark can confirm the depsgraph was skipped.
-    static int perfDepsSkipCounter = 0;
-    if (++perfDepsSkipCounter % 60 == 1) {
-      std::cerr << "[BGE_PERF] UpdateDepsgraph time_ms=0.0 scene=" << GetName()
-                << " objects=" << GetObjectList()->GetCount() << " skipped=true\n";
-    }
   }
 
   /* Always copy the (possibly interpolated) SceneGraph transforms to the evaluated
@@ -1886,7 +1869,7 @@ KX_GameObject *KX_Scene::AddNodeReplicaObject(SG_Node *node, KX_GameObject *game
 
   // this is the list of object that are send to the graphics pipeline
   m_objectlist->Add(CM_AddRef(newobj));
-  // Milestone 4: adding an object changes scene structure, depsgraph must be evaluated.
+  // Adding an object changes scene structure, depsgraph must be evaluated.
   KX_GetActiveEngine()->MarkDepsgraphDirty();
   switch (newobj->GetGameObjectType()) {
     case SCA_IObject::OBJ_LIGHT: {
@@ -2329,7 +2312,7 @@ void KX_Scene::DelayedRemoveObject(KX_GameObject *gameobj)
 
 bool KX_Scene::NewRemoveObject(KX_GameObject *gameobj)
 {
-  // Milestone 4: removing an object changes scene structure, depsgraph must be evaluated.
+  // Removing an object changes scene structure, depsgraph must be evaluated.
   if (KX_GetActiveEngine()) {
     KX_GetActiveEngine()->MarkDepsgraphDirty();
   }
@@ -2459,7 +2442,7 @@ void KX_Scene::ReplaceMesh(KX_GameObject *gameobj,
     return;
   }
 
-  // Milestone 4: mesh geometry changes need depsgraph evaluation.
+  // Mesh geometry changes need depsgraph evaluation.
   if (KX_GetActiveEngine()) {
     KX_GetActiveEngine()->MarkDepsgraphDirty();
   }

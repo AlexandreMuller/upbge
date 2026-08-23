@@ -90,7 +90,7 @@ KX_GameObject::KX_GameObject()
       m_previousLodLevel(-1),        // eevee
       m_isUpbgeDupliBase(false),      // eevee
       m_isUpbgeDupliInstance(false),    // eevee
-      m_requiresDepsgraphUpdate(true), // Milestone 4: default to safe, will be refined after conversion.
+      m_requiresDepsgraphUpdate(true), // Default to safe, will be refined after conversion.
       m_layer(0),
       m_lodManager(nullptr),
       m_currentLodLevel(0),
@@ -333,7 +333,7 @@ void KX_GameObject::TagForTransformUpdate(bool is_overlay_pass)
   }
   /* When gameobj are not upbge dupli bases or instances, transform updates are synced with depsgraph */
   float object_to_world[4][4];
-  // Milestone 3: keep the original object in sync with the interpolated render
+  // Keep the original object in sync with the interpolated render
   // transform. This guarantees that if the depsgraph is re-evaluated (first
   // frame, structural changes, etc.) the evaluated object receives the same
   // smoothed transform that is used for rendering, instead of jumping back to
@@ -395,7 +395,7 @@ void KX_GameObject::TagForTransformUpdate(bool is_overlay_pass)
     }
 
     if (applyTransformToOrig) {
-      // Milestone 4: avoid tagging the depsgraph for pure physics transform changes.
+      // Avoid tagging the depsgraph for pure physics transform changes.
       // Objects that only move due to rigid body / SceneGraph physics never need
       // depsgraph evaluation for geometry/modifier updates. Tag only when the object
       // has data that depends on depsgraph (modifiers, geometry nodes, constraints,
@@ -447,7 +447,7 @@ void KX_GameObject::TagForTransformUpdateEvaluated(bool is_last_render_pass)
    * fields to be updated for objects not tagged with depsgraph (upbge dupli bases and gpu deformed
    * objects). It will be done later in the pipeline (eevee_sync.cc, workbench_engine.cc) */
   float object_to_world[4][4];
-  // Milestone 3: use the interpolated render transform when interpolation is enabled
+  // Use the interpolated render transform when interpolation is enabled
   // and the object is driven by physics. This avoids visual jitter when the render rate
   // differs from the physics rate. The SG_Node still holds the current physics transform
   // for logic and physics in the next frame.
@@ -1938,7 +1938,7 @@ MT_Transform KX_GameObject::NodeGetLocalTransform() const
   return m_pSGNode->GetLocalTransform();
 }
 
-// Milestone 3: physics/render transform interpolation implementation.
+// Physics/render transform interpolation implementation.
 void KX_GameObject::SetPhysicsTransform(const MT_Matrix4x4 &t)
 {
   m_currentPhysicsTransform = t;

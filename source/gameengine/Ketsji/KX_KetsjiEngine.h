@@ -184,7 +184,7 @@ class KX_KetsjiEngine {
   /// used to control strange behavior in clockTime physics when starting the game.
   bool m_firstEngineFrame;
 
-  // Milestone 2: physics accumulator pattern.
+  // Physics accumulator pattern.
   /// Accumulated real time for fixed physics sub-steps.
   double m_physicsAccumulator;
   /// Fixed physics time step (120 Hz).
@@ -192,11 +192,11 @@ class KX_KetsjiEngine {
   /// Maximum physics sub-steps per frame to avoid death spiral.
   static constexpr int MAX_PHYSICS_SUBSTEPS = 5;
 
-  // Milestone 4: lazy depsgraph update.
+  // Lazy depsgraph update.
   /// True when the depsgraph needs to be evaluated before the next render.
   bool m_depsgraphDirty;
 
-  // Milestone 3: render interpolation alpha (0 = previous physics, 1 = current physics).
+  // Render interpolation alpha (0 = previous physics, 1 = current physics).
   double m_physicsInterpolationAlpha;
 
   /// maximum number of consecutive logic frame
@@ -359,7 +359,7 @@ class KX_KetsjiEngine {
     return m_networkMessageManager;
   }
 
-  // Milestone 4: lazy depsgraph control.
+  // Lazy depsgraph control.
   /// Mark the depsgraph as needing an update before the next render.
   void MarkDepsgraphDirty();
   /// Returns true if the depsgraph needs to be evaluated before the next render.
@@ -472,7 +472,7 @@ class KX_KetsjiEngine {
   double GetAverageFrameRate();
 
   /**
-   * Milestone 3: gets the current physics/render interpolation alpha.
+   * Gets the current physics/render interpolation alpha.
    * 0.0 means the render is using the previous physics transform,
    * 1.0 means it is using the current physics transform.
    */

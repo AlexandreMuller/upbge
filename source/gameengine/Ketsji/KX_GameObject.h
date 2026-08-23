@@ -109,7 +109,7 @@ class KX_GameObject : public SCA_IObject {
   short m_previousLodLevel;
   bool m_isUpbgeDupliBase;
   bool m_isUpbgeDupliInstance;
-  // Milestone 4: true when this object's transform needs depsgraph evaluation
+  // True when this object's transform needs depsgraph evaluation
   // (e.g. modifiers, geometry nodes, constraints, shape keys, drivers).
   bool m_requiresDepsgraphUpdate;
   /* END OF EEVEE INTEGRATION */
@@ -137,7 +137,7 @@ class KX_GameObject : public SCA_IObject {
   PHY_IPhysicsController *m_pPhysicsController;
   SG_Node *m_pSGNode;
 
-  // Milestone 3: render interpolation transforms.
+  // Render interpolation transforms.
   // We keep the previous and current physics transforms so that the rasterizer
   // can render an interpolated pose between them, eliminating visual jitter
   // when the render rate differs from the physics rate.
@@ -181,7 +181,7 @@ class KX_GameObject : public SCA_IObject {
   void SyncTransformWithDepsgraph();
   void SetIsReplicaObject();
   void SetIsUpbgeDupliBase();
-  // Milestone 4: lazy depsgraph flag helpers.
+  // Lazy depsgraph flag helpers.
   void SetRequiresDepsgraphUpdate(bool requiresUpdate);
   bool RequiresDepsgraphUpdate() const;
   /**
@@ -517,7 +517,7 @@ class KX_GameObject : public SCA_IObject {
   const MT_Vector3 &NodeGetWorldPosition() const;
   MT_Transform NodeGetWorldTransform() const;
 
-  // Milestone 3: physics/render transform interpolation API.
+  // Physics/render transform interpolation API.
   void SetPhysicsTransform(const MT_Matrix4x4 &t);
   const MT_Matrix4x4 &GetPhysicsTransform() const;
   void SavePreviousPhysicsTransform();

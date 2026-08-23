@@ -21,9 +21,6 @@
 
 #include "CcdPhysicsEnvironment.h"
 
-#include <chrono>
-#include <iostream>
-
 #include "BKE_object.hh"
 #include "BLI_bounds.hh"
 #include "DNA_object_force_types.h"
@@ -688,8 +685,6 @@ void CcdPhysicsEnvironment::SimulationSubtickCallback(btScalar timeStep)
 
 bool CcdPhysicsEnvironment::ProceedDeltaTime(double curTime, float timeStep, float interval)
 {
-  const auto physT0 = std::chrono::steady_clock::now();
-
   std::set<CcdPhysicsController *>::iterator it;
   int i;
 
@@ -702,7 +697,7 @@ bool CcdPhysicsEnvironment::ProceedDeltaTime(double curTime, float timeStep, flo
   }
 
   float subStep = timeStep / float(m_numTimeSubSteps);
-  // Milestone 2: when timeStep == interval (fixed physics sub-step), ask Bullet for exactly one
+  // When timeStep == interval (fixed physics sub-step), ask Bullet for exactly one
   // sub-step to avoid internal accumulation fighting with our external accumulator
   const int maxSubSteps = (timeStep == interval) ? 1 : 25;
   i = m_dynamicsWorld->stepSimulation(
@@ -722,17 +717,6 @@ bool CcdPhysicsEnvironment::ProceedDeltaTime(double curTime, float timeStep, flo
   }
 
   CallbackTriggers();
-
-  // Milestone 1 instrumentation: log physics time every 60 frames to avoid console spam.
-  static int perfPhysCounter = 0;
-  ++perfPhysCounter;
-  if (perfPhysCounter % 60 == 0) {
-    const auto physT1 = std::chrono::steady_clock::now();
-    const double physMs = std::chrono::duration<double, std::milli>(physT1 - physT0).count();
-    std::cerr << "[BGE_PERF] ProceedDeltaTime time_ms=" << physMs
-              << " timeStep=" << timeStep << " interval=" << interval
-              << " controllers=" << m_controllers.size() << "\n";
-  }
 
   return true;
 }
