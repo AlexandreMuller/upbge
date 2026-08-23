@@ -147,8 +147,8 @@ KX_KetsjiEngine::KX_KetsjiEngine(KX_ISystem *system,
       m_previous_deltaTime(0.0f),
       m_firstEngineFrame(true),
       m_physicsAccumulator(0.0),
-      m_depsgraphDirty(true),  // Milestone 4: force initial depsgraph evaluation.
-      m_physicsInterpolationAlpha(0.0),  // Milestone 3: start with current physics transform.
+      m_depsgraphDirty(true),  // Force initial depsgraph evaluation.
+      m_physicsInterpolationAlpha(0.0),  // Start with current physics transform.
       m_maxLogicFrame(5),
       m_maxPhysicsFrame(5),
       m_ticrate(DEFAULT_LOGIC_TIC_RATE),
@@ -385,7 +385,7 @@ void KX_KetsjiEngine::EndFrameViewportRender()
 
 KX_KetsjiEngine::FrameTimes KX_KetsjiEngine::GetFrameTimes()
 {
-  // Milestone 1 instrumentation: perf logging every 60 frames to avoid console spam.
+  // Perf logging every 60 frames to avoid console spam.
   static int perfFrameCounter = 0;
   ++perfFrameCounter;
   const auto perfT0 = std::chrono::steady_clock::now();
@@ -492,21 +492,12 @@ KX_KetsjiEngine::FrameTimes KX_KetsjiEngine::GetFrameTimes()
   times.timestep = timestep;
   times.framestep = framestep;
 
-  const auto perfT1 = std::chrono::steady_clock::now();
-  if (perfFrameCounter % 60 == 0) {
-    const double perfMs = std::chrono::duration<double, std::milli>(perfT1 - perfT0).count();
-    std::cerr << "[BGE_PERF] GetFrameTimes frame=" << perfFrameCounter
-              << " dt=" << dt << " timestep=" << timestep
-              << " frames=" << frames << " framestep=" << framestep
-              << " time_ms=" << perfMs << "\n";
-  }
-
   return times;
 }
 
 bool KX_KetsjiEngine::NextFrame()
 {
-  // Milestone 4 benchmark baseline: allow forcing depsgraph evaluation every frame
+  // Benchmark baseline: allow forcing depsgraph evaluation every frame
   // via an environment variable so we can compare the lazy implementation against
   // the old "always evaluate" behavior without reverting code.
   static const bool forceDepsgraph = []() {
@@ -517,7 +508,7 @@ bool KX_KetsjiEngine::NextFrame()
     MarkDepsgraphDirty();
   }
 
-  // Milestone 1 instrumentation: perf logging every 60 frames to avoid console spam.
+  // Instrumentation: perf logging every 60 frames to avoid console spam.
   static int perfFrameCounter = 0;
   ++perfFrameCounter;
   const auto perfFrameT0 = std::chrono::steady_clock::now();
@@ -534,24 +525,16 @@ bool KX_KetsjiEngine::NextFrame()
     return false;
   }
 
-  // Milestone 2: accumulate real scaled time for fixed physics sub-steps.
+  // Accumulate real scaled time for fixed physics sub-steps.
   double scaledDt = times.timestep * m_timescale;
   if (scaledDt > 0.25) {
     scaledDt = 0.25;  // clamp after pause/freeze to avoid explosion
   }
   m_physicsAccumulator += scaledDt;
 
-  // Milestone 1 instrumentation: log accumulator state.
-  if (perfFrameCounter % 60 == 0) {
-    std::cerr << "[BGE_PERF] Accumulator frame=" << perfFrameCounter
-              << " accumulator=" << m_physicsAccumulator
-              << " timestep=" << times.timestep
-              << " timescale=" << m_timescale << "\n";
-  }
-
   int substeps = 0;
 
-  // Milestone 3: enable transform interpolation for physics objects. The previous
+  // Enable transform interpolation for physics objects. The previous
   // transform is saved before each physics step so that after the loop we can
   // extrapolate from the last completed physics step to the current render time.
   for (KX_Scene *scene : m_scenes) {
@@ -606,7 +589,7 @@ bool KX_KetsjiEngine::NextFrame()
       m_logger.StartLog(tc_scenegraph);
       scene->UpdateParents(m_frameTime);
 
-      // Milestone 3: snapshot the state before this physics step. After the step we will
+      // Snapshot the state before this physics step. After the step we will
       // store the new state; together they form the velocity used for extrapolation.
       for (KX_GameObject *gameobj : scene->GetObjectList()) {
         if (gameobj && gameobj->GetPhysicsController()) {
@@ -621,7 +604,7 @@ bool KX_KetsjiEngine::NextFrame()
       m_logger.StartLog(tc_scenegraph);
       scene->UpdateParents(m_frameTime);
 
-      // Milestone 3: store the current physics transform after this sub-step so we can
+      // Store the current physics transform after this sub-step so we can
       // extrapolate from the previous pose to the current render time.
       for (KX_GameObject *gameobj : scene->GetObjectList()) {
         if (gameobj && gameobj->GetPhysicsController()) {
@@ -645,7 +628,7 @@ bool KX_KetsjiEngine::NextFrame()
     ++substeps;
   }
 
-  // Milestone 3: compute interpolation alpha and generate extrapolated render transforms.
+  // Compute interpolation alpha and generate extrapolated render transforms.
   // alpha = 0 means render exactly at the last physics step; alpha > 0 extrapolates
   // forward by that fraction of a physics step (e.g. alpha = 0.5 means half a step ahead).
   m_physicsInterpolationAlpha = (PHYSICS_TIMESTEP > 0.0)
@@ -659,23 +642,13 @@ bool KX_KetsjiEngine::NextFrame()
     }
   }
 
-  // Update soft bodies once per rendered frame (same as original behavior).
+  // Update soft bodies once per rendered frame.
   for (KX_Scene *scene : m_scenes) {
     scene->GetPhysicsEnvironment()->UpdateSoftBodiesRenderedMesh();
   }
 
   // Start logging time spent outside main loop
   m_logger.StartLog(tc_outside);
-
-  if (perfFrameCounter % 60 == 0) {
-    const auto perfFrameT1 = std::chrono::steady_clock::now();
-    const double perfFrameMs = std::chrono::duration<double, std::milli>(perfFrameT1 - perfFrameT0).count();
-    std::cerr << "[BGE_PERF] NextFrame frame=" << perfFrameCounter
-              << " total_ms=" << perfFrameMs
-              << " substeps=" << substeps
-              << " accumulator=" << m_physicsAccumulator
-              << " doRender=" << m_doRender << "\n";
-  }
 
   return m_doRender;
 }
@@ -1669,7 +1642,7 @@ double KX_KetsjiEngine::GetAverageFrameRate()
   return m_average_framerate;
 }
 
-// Milestone 3: expose the physics/render interpolation alpha for debugging and gameplay.
+// Expose the physics/render interpolation alpha for debugging and gameplay.
 double KX_KetsjiEngine::GetPhysicsInterpolationAlpha() const
 {
   return m_physicsInterpolationAlpha;
