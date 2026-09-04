@@ -50,6 +50,11 @@ struct [[host_shared]] ShadowSceneData {
   float pcf_offset_scale;
   /* Scale factor for the PCF kernel grain size (tap spacing). */
   float pcf_grain_scale;
+  /* Color-ramp style curve for the penumbra gradient (0=linear, 1=ease, 2=cardinal). */
+  int pcf_curve_mode;
+  /* Tension for the CARDINAL curve. Unused for LINEAR and EASE. */
+  float pcf_curve_tension;
+  int _pad0[2];
 };
 
 struct [[host_shared]] SceneData {

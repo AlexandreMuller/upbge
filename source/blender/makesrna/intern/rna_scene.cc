@@ -9681,13 +9681,22 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_update(prop, 0, "rna_SceneEEVEE_shadow_resolution_update");
 
-  /* Shadow PCF options. (upbge)*/
+  static const EnumPropertyItem shadow_pcf_curve_mode_items[] = {
+      {0, "LINEAR", 0, "Linear", "Straight gradient from the shadow's edge to the penumbra's edge"},
+      {1, "EASE", 0, "Ease", "Smooth S-curve transition (default)"},
+      {2, "CARDINAL", 0, "Cardinal", "Tension-controlled Catmull-Rom-style shoulder"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  /* Shadow SPFD options. (upbge)*/
   prop = RNA_def_property(srna, "shadow_use_pcf", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, nullptr, "shadow_use_pcf", 1);
   RNA_def_property_ui_text(prop,
-                           "Shadow Pcf",
-                           "Use stable 3x3 Percentage Closer Filtering instead of jittered "
-                           "ray-tracing for non-jittered lights (no TAA required)");
+                           "Soft Shadows (SPFD)",
+                           "Use the Sombra-Penumbra por Fracao de Disco technique instead of "
+                           "jittered ray-tracing for non-jittered lights: derives a penumbra "
+                           "radius from the shadow's delimitation, then reshapes the lit disk "
+                           "fraction with a single Color-Ramp-style curve");
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
 
@@ -9695,9 +9704,11 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
   RNA_def_property_float_sdna(prop, nullptr, "shadow_pcf_offset");
   RNA_def_property_range(prop, 0.0f, 10.0f);
   RNA_def_property_ui_range(prop, 0.0f, 2.0f, 0.1f, 2);
-  RNA_def_property_ui_text(prop,
-                           "Pcf Offset",
-                           "Scale of the Pcf center offset to reduce self-shadowing artifacts");
+  RNA_def_property_ui_text(
+      prop,
+      "Light Radius",
+      "Scale of the light source's apparent size, used to derive the penumbra's radius "
+      "from the shadow's delimitation (kernel_radius, Eq. 1 of the SPFD technique)");
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
 
@@ -9706,9 +9717,31 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
   RNA_def_property_range(prop, 0.01f, 10.0f);
   RNA_def_property_ui_range(prop, 0.1f, 3.0f, 0.1f, 2);
   RNA_def_property_ui_text(prop,
-                           "Pcf Grain Size",
-                           "Scale factor for the Pcf kernel tap spacing (larger values spread "
-                           "the filter wider, softening shadows)");
+                           "Max Penumbra",
+                           "Clamps the maximum penumbra radius (delimitation final da "
+                           "penumbra), as a safety limit for very soft shadows");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "shadow_pcf_curve_mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, nullptr, "shadow_pcf_curve_mode");
+  RNA_def_property_enum_items(prop, shadow_pcf_curve_mode_items);
+  RNA_def_property_ui_text(prop,
+                           "Curve",
+                           "Color-ramp style curve used to reshape, in a single pass, the "
+                           "gradient between the shadow's edge (Fac=0) and the penumbra's "
+                           "edge (Fac=1)");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
+
+  prop = RNA_def_property(srna, "shadow_pcf_curve_tension", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_float_sdna(prop, nullptr, "shadow_pcf_curve_tension");
+  RNA_def_property_range(prop, -1.0f, 1.0f);
+  RNA_def_property_ui_range(prop, -1.0f, 1.0f, 0.1f, 2);
+  RNA_def_property_ui_text(
+      prop, "Curve Tension", "Tension of the Cardinal curve. Only used when Curve is Cardinal");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
 }

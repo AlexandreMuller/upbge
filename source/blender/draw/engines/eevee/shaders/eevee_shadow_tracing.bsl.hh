@@ -53,56 +53,146 @@ ShadowMapTracingState shadow_map_trace_init(int sample_count, float step_offset)
 }
 
 /**
- * UPBGE PCF path: Unified 3x3 PCF helper for both directional and punctual lights.
- * Uses `shadow_sample()` which returns (receiver_dist - occluder_dist):
- *   positive = in shadow, negative or large = visible.
- * `is_directional` selects the correct shadow sampling path.
- * `L` is the light direction (world space), `Ng` the geometric normal.
- * `P_center` is the world-space shading point (already biased).
- * `pcf_step` is the world-space distance between PCF taps.
- * `softness` controls the smoothstep transition width.
+ * UPBGE SPFD: Sombra-Penumbra por Fracao de Disco (Shadow-Penumbra by Illuminated Disk
+ * Fraction).
+ *
+ * Three-stage pipeline with an explicit geometric meaning at every step:
+ *   1. The shadow's delimitation (the occluder's cast silhouette) is read from the shadow
+ *      map and used, through triangle similarity, to derive `kernel_radius`: the penumbra
+ *      disk radius that marks the penumbra's final delimitation.
+ *   2. The pure fraction `F` of that disk which is lit is computed (Monte-Carlo, Poisson
+ *      taps): F = 0 at the shadow's edge (fully occluded), F = 1 at the penumbra's edge
+ *      (fully lit). This is exactly the Fac of a gradient between the two delimitations.
+ *   3. A single reshaping curve (LINEAR / EASE / CARDINAL, matching the Blender Color Ramp
+ *      interpolation types) is applied once to the aggregated `F`, never per-sample.
  */
-float shadow_pcf_uniform([[resource_table]] ShadowRenderData &srd,
-                         LightData light,
-                         const bool is_directional,
-                         float3 L,
-                         float3 P_center,
-                         float pcf_step,
-                         float softness)
+
+/**
+ * Etapa 3: Color-Ramp-style curve remapping of the disk's lit fraction `F`.
+ * `F` goes from 0 (shadow's edge, fully occluded) to 1 (penumbra's edge, fully lit).
+ * `tension` only affects CARDINAL.
+ */
+float shadow_pcss_curve_remap(float F, int curve_mode, float tension)
+{
+  F = saturate(F);
+  if (curve_mode == 1) {
+    /* Ease: 3F^2 - 2F^3. */
+    return F * F * (3.0f - 2.0f * F);
+  }
+  if (curve_mode == 2) {
+    /* Cardinal/Catmull-Rom shoulder, controlled by tension. */
+    float c = F + 2.0f * tension * F * (1.0f - F) * (2.0f * F - 1.0f);
+    return saturate(c);
+  }
+  /* Linear. */
+  return F;
+}
+
+/* Returns the receiver distance from the light in light-space units. */
+float shadow_receiver_distance(LightData light, const bool is_directional, float3 P)
+{
+  if (is_directional) {
+    float3 lP = light_world_to_local_direction(light, P);
+    return -lP.z - orderedIntBitsToFloat(light.clip_near);
+  }
+  float3 shadow_position = light.local().local.shadow_position;
+  float3 lP = light_world_to_local_point(light, P);
+  lP -= shadow_position;
+  return length(lP);
+}
+
+/**
+ * Etapa 1: Shadow's delimitation.
+ *
+ * Finds the light-to-occluder distance (`d_lo`) closest to the light in a small, fixed-size
+ * local neighborhood (~3x3 shadow-map texels) around `P_center`. Using a small neighborhood
+ * instead of a single texel lets the penumbra extend onto currently-unoccluded points that
+ * sit right outside the umbra, which a single center sample would miss entirely.
+ * Returns 1e10 if no occluder is found nearby.
+ */
+float shadow_spfd_occluder_distance([[resource_table]] ShadowRenderData &srd,
+                                    LightData light,
+                                    const bool is_directional,
+                                    float3 L,
+                                    float3 P_center,
+                                    float search_radius,
+                                    float receiver_dist)
 {
   float3 right, up;
   make_orthonormal_basis(L, right, up);
 
-  const float kernel[9] = {1.0f, 2.0f, 1.0f,
-                           2.0f, 4.0f, 2.0f,
-                           1.0f, 2.0f, 1.0f};
-  const float kernel_sum = 16.0f;
+  /* Local 3x3 neighborhood: center + 8 immediate neighbors. */
+  const float2 local_taps[9] = {
+      float2(0.0f, 0.0f),
+      float2(-1.0f, -1.0f), float2(0.0f, -1.0f), float2(1.0f, -1.0f),
+      float2(-1.0f, 0.0f),                        float2(1.0f, 0.0f),
+      float2(-1.0f, 1.0f),  float2(0.0f, 1.0f),  float2(1.0f, 1.0f)};
 
-  float vis_sum = 0.0f;
-  int ki = 0;
-  for (int yy = -1; yy <= 1; ++yy) {
-    for (int xx = -1; xx <= 1; ++xx) {
-      float3 offset = right * (float(xx) * pcf_step) + up * (float(yy) * pcf_step);
-      float3 P_tap = P_center + offset;
-      /* shadow_sample returns (receiver - occluder): positive = shadowed. */
-      float d = srd.shadow_sample(
-          is_directional, light, P_tap);
-      float vis;
-      if (d > 1e9f) {
-        /* No valid shadow data (missing tile). Treat as lit. */
-        vis = 1.0f;
-      }
-      else {
-        /* d > 0 means receiver is behind occluder (shadow).
-         * Smoothstep from 0 (fully shadowed) to softness (fully lit). */
-        vis = 1.0f - saturate(smoothstep(0.0f, softness, d));
-      }
-      vis_sum += vis * kernel[ki++];
+  float d_lo = 1e10f;
+  for (int i = 0; i < 9; ++i) {
+    float3 P_tap = P_center + right * (local_taps[i].x * search_radius) +
+                    up * (local_taps[i].y * search_radius);
+    /* shadow_sample returns receiver_dist(P_tap) - occluder_dist(P_tap). Neighboring taps sit
+     * on the plane perpendicular to L, so their own receiver distance stays close to the
+     * center's for a small search_radius, which lets us recover each tap's occluder distance
+     * using the center's `receiver_dist` and keep the one closest to the light. */
+    float d_tap = srd.shadow_sample(is_directional, light, P_tap);
+    if (d_tap > 1e9f) {
+      continue;
     }
+    float occluder_dist = receiver_dist - d_tap;
+    d_lo = min(d_lo, occluder_dist);
   }
-  return saturate(vis_sum / kernel_sum);
+  return d_lo;
 }
-/* End of UPBGE PCF path. */
+
+/**
+ * Etapa 2: Pure geometric fraction of the `kernel_radius` disk that is lit.
+ * Returns F in [0, 1], the Fac of the gradient between the shadow's edge (F=0) and the
+ * penumbra's edge (F=1). No curve is applied here: reshaping happens exactly once, by the
+ * caller, on this aggregated value.
+ */
+float shadow_spfd_disk_fraction([[resource_table]] ShadowRenderData &srd,
+                                LightData light,
+                                const bool is_directional,
+                                float3 L,
+                                float3 P_center,
+                                float kernel_radius)
+{
+  if (kernel_radius <= 0.0f) {
+    /* No penumbra: fall back to a single binary depth test at the center. */
+    float d = srd.shadow_sample(is_directional, light, P_center);
+    return (d > 1e9f || d <= 0.0f) ? 1.0f : 0.0f;
+  }
+
+  float3 right, up;
+  make_orthonormal_basis(L, right, up);
+
+  /* 24-tap Poisson disk (16 + 8 taps) to keep banding low while staying at a single
+   * shadow-map lookup pass. */
+  const float2 poisson_taps[24] = {
+      float2(-0.942f, -0.334f), float2(-0.510f, -0.860f), float2(0.203f, -0.978f),
+      float2(0.868f, -0.496f),  float2(0.780f, 0.530f),   float2(0.394f, 0.918f),
+      float2(-0.373f, 0.882f),  float2(-0.850f, 0.373f),  float2(-0.691f, -0.070f),
+      float2(-0.200f, -0.508f), float2(0.356f, -0.364f), float2(0.665f, 0.062f),
+      float2(0.235f, 0.549f),  float2(-0.219f, 0.218f),  float2(0.101f, -0.072f),
+      float2(0.012f, 0.012f),
+      float2(-0.863f, -0.505f), float2(-0.119f, -0.993f), float2(0.682f, -0.731f),
+      float2(0.960f, 0.280f),  float2(0.473f, 0.881f),   float2(-0.620f, 0.785f),
+      float2(-0.391f, -0.215f), float2(0.204f, 0.364f)};
+
+  float lit_count = 0.0f;
+  for (int i = 0; i < 24; ++i) {
+    float2 r = poisson_taps[i];
+    float3 P_tap = P_center + right * (r.x * kernel_radius) + up * (r.y * kernel_radius);
+
+    /* Binary depth test (Eq. 3): d <= 0 means the point is in front of any occluder (lit). */
+    float d = srd.shadow_sample(is_directional, light, P_tap);
+    lit_count += (d > 1e9f || d <= 0.0f) ? 1.0f : 0.0f;
+  }
+  return lit_count / 24.0f;
+}
+/* End of UPBGE SPFD path helpers. */
 
 struct ShadowTracingSample {
   /**
@@ -545,37 +635,60 @@ float shadow_eval([[resource_table]] ShadowRenderData &srd,
   /* Shadow map texel radius at the receiver position. */
   float texel_radius = shadow_texel_radius_at_position(uni, views, light, is_directional, P);
 
-  /* UPBGE PCF path: If the global PCF option is enabled and the light doesn't use jitter,
-   * use a stable 3x3 PCF instead of the noisy ray-tracing path.
-   * This gives cleaner shadows with 1 ray / 1 step. If no Taa, slight but nice noise.
+  /* UPBGE SPFD path: If the global toggle is enabled and the light doesn't use jitter, use
+   * the "Sombra-Penumbra por Fracao de Disco" technique instead of the noisy ray-tracing
+   * path (see the SPFD block above `shadow_pcss_curve_remap` for the full 3-stage pipeline).
    *
-   * pcf_step and softness are fixed at texel_radius scale so the kernel
-   * always samples neighbouring texels and never reaches far enough to
-   * darken lit areas. User settings only affect pcf_rnd which controls
-   * the sub-texel jitter of P_center via shadow_pcf_offset:
-   *   - grain_scale modulates the amplitude of the center offset.
-   *   - offset_scale modulates the random input to vary the pattern. */
+   * Controls:
+   *   - pcf_offset_scale: light_radius scale (Etapa 1, Eq. 1).
+   *   - pcf_grain_scale: clamps the maximum penumbra radius (artistic safety valve).
+   *   - pcf_curve_mode / pcf_curve_tension: Etapa 3 reshaping curve. */
   if (bool(uni.uniform_buf.shadow.use_pcf) && !bool(light.shadow_jitter)) {
-    float offset_scale = uni.uniform_buf.shadow.pcf_offset_scale;
-    float grain_scale = uni.uniform_buf.shadow.pcf_grain_scale;
-
-    float softness = texel_radius * 0.5f;
-    float pcf_step = texel_radius;
+    float light_radius_scale = uni.uniform_buf.shadow.pcf_offset_scale;
+    float max_penumbra_scale = uni.uniform_buf.shadow.pcf_grain_scale;
 
     /* Apply normal bias to avoid self-shadowing. */
     float3 P_biased = P + N_bias * shadow_normal_offset(Ng, L, texel_radius);
 
-    /* User controls feed into the jitter only:
-     * - offset_scale modulates the random input.
-     * - grain_scale scales the resulting offset amplitude. */
-    float2 temporal_jitter = random_shadow_3d.xy * 0.25f;
-    float2 pcf_rnd = fract(random_pcf_2d) + temporal_jitter * offset_scale * 2.0f;
-    float3 P_center = P_biased + (texel_radius * grain_scale) *
-                                  shadow_pcf_offset(L, Ng, pcf_rnd);
+    /* Deterministic center: no per-frame random jitter, so shadows stay stable
+     * without TAA. A tiny sub-texel jitter based on pixel position breaks
+     * residual regular patterns. */
+    float2 pcf_rnd = float2(interleaved_gradient_noise(frag_co, 0.0f, 0.0f),
+                            interleaved_gradient_noise(frag_co, 1.0f, 0.0f));
+    float3 P_center = P_biased + (texel_radius * 0.05f) * shadow_pcf_offset(L, Ng, pcf_rnd);
 
-    return shadow_pcf_uniform(srd, light, is_directional, L, P_center, pcf_step, softness);
+    /* Etapa 1: delimitacao da sombra -> kernel_radius via semelhanca de triangulos (Eq. 1). */
+    float receiver_dist = shadow_receiver_distance(light, is_directional, P_center);
+    float d_lo = shadow_spfd_occluder_distance(
+        srd, light, is_directional, L, P_center, texel_radius * 1.5f, receiver_dist);
+
+    float min_kernel_radius = texel_radius * 0.5f;
+    float max_kernel_radius = texel_radius * 64.0f * max_penumbra_scale;
+    float kernel_radius = 0.0f;
+
+    if (d_lo < 1e9f) {
+      float d_or = max(0.0f, receiver_dist - d_lo);
+      float penumbra;
+      if (is_directional) {
+        penumbra = d_or * tan(light.sun().shadow_angle);
+      }
+      else {
+        penumbra = light.local().local.shadow_radius * d_or / max(d_lo, 1e-5f);
+      }
+      kernel_radius = penumbra * light_radius_scale;
+      if (kernel_radius > 0.0f) {
+        kernel_radius = clamp(kernel_radius, min_kernel_radius, max_kernel_radius);
+      }
+    }
+
+    /* Etapa 2: fracao pura do disco iluminada -> Fac do gradiente. */
+    float F = shadow_spfd_disk_fraction(srd, light, is_directional, L, P_center, kernel_radius);
+
+    /* Etapa 3: curva de reformato aplicada uma unica vez sobre a fracao agregada. */
+    return shadow_pcss_curve_remap(
+        F, int(uni.uniform_buf.shadow.pcf_curve_mode), uni.uniform_buf.shadow.pcf_curve_tension);
   }
-  /* End of UPBGE PCF path. */
+  /* End of UPBGE SPFD path. */
 
   if (is_transmission && !is_facing_light) {
     /* Ideally, we should bias using the chosen ray direction. In practice, this conflict with our

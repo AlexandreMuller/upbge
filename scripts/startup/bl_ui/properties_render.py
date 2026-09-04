@@ -754,12 +754,16 @@ class RENDER_PT_eevee_sampling_shadows(RenderButtonsPanel, Panel):
         col.prop(props, "shadow_resolution_scale", text="Resolution")
 
         #upbge
-        col = layout.column(heading="Pcf", align=True)
-        col.prop(props, "shadow_use_pcf", text="Enable pcf")
+        col = layout.column(heading="Soft Shadows", align=True)
+        col.prop(props, "shadow_use_pcf", text="Enable SPFD")
         sub = col.column(align=True)
         sub.active = props.shadow_use_pcf
-        sub.prop(props, "shadow_pcf_offset", text="Offset")
-        sub.prop(props, "shadow_pcf_grain", text="Grain Size")
+        sub.prop(props, "shadow_pcf_offset", text="Light Radius")
+        sub.prop(props, "shadow_pcf_grain", text="Max Penumbra")
+        sub.prop(props, "shadow_pcf_curve_mode", text="Curve")
+        sub2 = sub.column(align=True)
+        sub2.active = props.shadow_pcf_curve_mode == 'CARDINAL'
+        sub2.prop(props, "shadow_pcf_curve_tension", text="Curve Tension")
 
 
 class RENDER_PT_eevee_sampling(RenderButtonsPanel, Panel):

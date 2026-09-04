@@ -611,6 +611,8 @@ void ShadowModule::init()
   data_.use_pcf = bool32_t(scene.eevee.shadow_use_pcf != 0);
   data_.pcf_offset_scale = scene.eevee.shadow_pcf_offset;
   data_.pcf_grain_scale = scene.eevee.shadow_pcf_grain;
+  data_.pcf_curve_mode = int(clamp_i(scene.eevee.shadow_pcf_curve_mode, 0, 2));
+  data_.pcf_curve_tension = scene.eevee.shadow_pcf_curve_tension;
   /*********/
 
   /* Pool size is in MBytes. */

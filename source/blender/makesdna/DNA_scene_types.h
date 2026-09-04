@@ -2905,6 +2905,8 @@ struct SceneEEVEE {
   int shadow_use_pcf = 0;
   float shadow_pcf_offset = 1.0f;
   float shadow_pcf_grain = 1.0f;
+  int shadow_pcf_curve_mode = 1;
+  float shadow_pcf_curve_tension = 0.5f;
   float _pad2[1] = {};
 
   float clamp_surface_direct = 0;
