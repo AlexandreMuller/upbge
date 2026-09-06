@@ -9704,11 +9704,11 @@ static void rna_def_scene_eevee(BlenderRNA *brna)
   RNA_def_property_float_sdna(prop, nullptr, "shadow_pcf_offset");
   RNA_def_property_range(prop, 0.0f, 10.0f);
   RNA_def_property_ui_range(prop, 0.0f, 2.0f, 0.1f, 2);
-  RNA_def_property_ui_text(
-      prop,
-      "Light Radius",
-      "Scale of the light source's apparent size, used to derive the penumbra's radius "
-      "from the shadow's delimitation (kernel_radius, Eq. 1 of the SPFD technique)");
+  RNA_def_property_ui_text(prop,
+                           "Min. Softness",
+                           "Minimum penumbra width (as a multiple of the shadow-map texel "
+                           "size). Ensures a baseline softness even when the light source has "
+                           "zero radius");
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, nullptr);
 

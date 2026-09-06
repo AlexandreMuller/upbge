@@ -758,7 +758,7 @@ class RENDER_PT_eevee_sampling_shadows(RenderButtonsPanel, Panel):
         col.prop(props, "shadow_use_pcf", text="Enable SPFD")
         sub = col.column(align=True)
         sub.active = props.shadow_use_pcf
-        sub.prop(props, "shadow_pcf_offset", text="Light Radius")
+        sub.prop(props, "shadow_pcf_offset", text="Min. Softness")
         sub.prop(props, "shadow_pcf_grain", text="Max Penumbra")
         sub.prop(props, "shadow_pcf_curve_mode", text="Curve")
         sub2 = sub.column(align=True)

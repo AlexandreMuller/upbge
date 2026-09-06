@@ -168,9 +168,10 @@ float shadow_spfd_disk_fraction([[resource_table]] ShadowRenderData &srd,
   float3 right, up;
   make_orthonormal_basis(L, right, up);
 
-  /* 24-tap Poisson disk (16 + 8 taps) to keep banding low while staying at a single
-   * shadow-map lookup pass. */
-  const float2 poisson_taps[24] = {
+  /* 24 fixed 2D directions. Each is used at multiple radii below so that the lit-fraction
+   * integrates the disk's area smoothly, instead of producing discrete concentric bands
+   * from a single-radius Poisson set. */
+  const float2 directions[24] = {
       float2(-0.942f, -0.334f), float2(-0.510f, -0.860f), float2(0.203f, -0.978f),
       float2(0.868f, -0.496f),  float2(0.780f, 0.530f),   float2(0.394f, 0.918f),
       float2(-0.373f, 0.882f),  float2(-0.850f, 0.373f),  float2(-0.691f, -0.070f),
@@ -180,17 +181,26 @@ float shadow_spfd_disk_fraction([[resource_table]] ShadowRenderData &srd,
       float2(-0.863f, -0.505f), float2(-0.119f, -0.993f), float2(0.682f, -0.731f),
       float2(0.960f, 0.280f),  float2(0.473f, 0.881f),   float2(-0.620f, 0.785f),
       float2(-0.391f, -0.215f), float2(0.204f, 0.364f)};
+  /* Sub-radius fractions at which each direction is evaluated, ordered innermost first.
+   * This turns the disk fraction into an area integral (F ~ r^2 for a half-lit disk),
+   * which removes the visible banding a single-radius Poisson set produces at large
+   * kernel radii. 10 sub-steps keep the penumbra smooth at full 192x texel sizes. */
+  const float sub_radii[10] = {
+      0.05f, 0.15f, 0.25f, 0.35f, 0.45f, 0.55f, 0.65f, 0.75f, 0.87f, 1.0f};
 
   float lit_count = 0.0f;
-  for (int i = 0; i < 24; ++i) {
-    float2 r = poisson_taps[i];
-    float3 P_tap = P_center + right * (r.x * kernel_radius) + up * (r.y * kernel_radius);
+  for (int ring = 0; ring < 10; ++ring) {
+    float radius_scale = sub_radii[ring];
+    for (int i = 0; i < 24; ++i) {
+      float2 r = directions[i] * radius_scale;
+      float3 P_tap = P_center + right * (r.x * kernel_radius) + up * (r.y * kernel_radius);
 
-    /* Binary depth test (Eq. 3): d <= 0 means the point is in front of any occluder (lit). */
-    float d = srd.shadow_sample(is_directional, light, P_tap);
-    lit_count += (d > 1e9f || d <= 0.0f) ? 1.0f : 0.0f;
+      /* Binary depth test (Eq. 3): d <= 0 means the point is in front of any occluder (lit). */
+      float d = srd.shadow_sample(is_directional, light, P_tap);
+      lit_count += (d > 1e9f || d <= 0.0f) ? 1.0f : 0.0f;
+    }
   }
-  return lit_count / 24.0f;
+  return lit_count / 240.0f;
 }
 /* End of UPBGE SPFD path helpers. */
 
@@ -635,15 +645,11 @@ float shadow_eval([[resource_table]] ShadowRenderData &srd,
   /* Shadow map texel radius at the receiver position. */
   float texel_radius = shadow_texel_radius_at_position(uni, views, light, is_directional, P);
 
-  /* UPBGE SPFD path: If the global toggle is enabled and the light doesn't use jitter, use
-   * the "Sombra-Penumbra por Fracao de Disco" technique instead of the noisy ray-tracing
-   * path (see the SPFD block above `shadow_pcss_curve_remap` for the full 3-stage pipeline).
-   *
-   * Controls:
-   *   - pcf_offset_scale: light_radius scale (Etapa 1, Eq. 1).
-   *   - pcf_grain_scale: clamps the maximum penumbra radius (artistic safety valve).
-   *   - pcf_curve_mode / pcf_curve_tension: Etapa 3 reshaping curve. */
-  if (bool(uni.uniform_buf.shadow.use_pcf) && !bool(light.shadow_jitter)) {
+  /* UPBGE SPFD path: If the global toggle is enabled, use the "Sombra-Penumbra por
+   * Fracao de Disco" technique unconditionally (it overrides the per-light jitter toggle).
+   * SPFD is a deterministic single-pass technique; it never falls back to the noisy
+   * ray-tracing path regardless of the light's jitter setting. */
+  if (bool(uni.uniform_buf.shadow.use_pcf)) {
     float light_radius_scale = uni.uniform_buf.shadow.pcf_offset_scale;
     float max_penumbra_scale = uni.uniform_buf.shadow.pcf_grain_scale;
 
@@ -675,10 +681,12 @@ float shadow_eval([[resource_table]] ShadowRenderData &srd,
       else {
         penumbra = light.local().local.shadow_radius * d_or / max(d_lo, 1e-5f);
       }
-      kernel_radius = penumbra * light_radius_scale;
-      if (kernel_radius > 0.0f) {
-        kernel_radius = clamp(kernel_radius, min_kernel_radius, max_kernel_radius);
-      }
+      /* light_radius_scale is only a minimum-width floor for the penumbra, not a
+       * multiplier: scaling the kernel here would make distant taps still straddle the
+       * penumbra and produce multiple overlapping gradients. The penumbra width is
+       * already determined by the light's own radius (r_l) through Eq. 1. */
+      kernel_radius = max(penumbra, min_kernel_radius * light_radius_scale);
+      kernel_radius = clamp(kernel_radius, min_kernel_radius, max_kernel_radius);
     }
 
     /* Etapa 2: fracao pura do disco iluminada -> Fac do gradiente. */
